@@ -17,6 +17,11 @@ int64_t CachedCMTimeToMillis(CMTime time) {
   return time.value * 1000 / time.timescale;
 }
 
+// The rate the video composition renders at, and therefore the rate at which the video output has
+// new pixel buffers. Both the composition's frameDuration and the display link's pinned rate are
+// derived from this, so they cannot drift apart.
+static const int32_t kCachedVideoCompositionFPS = 30;
+
 @interface CachedFrameUpdater : NSObject
 @property(nonatomic) int64_t textureId;
 @property(nonatomic, weak, readonly) NSObject<FlutterTextureRegistry>* registry;
@@ -146,8 +151,9 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
   videoComposition.renderSize = CGSizeMake(width, height);
 
   // TODO(@recastrodiaz): should we use videoTrack.nominalFrameRate ?
-  // Currently set at a constant 30 FPS
-  videoComposition.frameDuration = CMTimeMake(1, 30);
+  // Currently set at a constant 30 FPS. pinDisplayLinkToPlaybackRate reads the same constant, so
+  // raising this without raising the pin would leave the extra frames unsampled.
+  videoComposition.frameDuration = CMTimeMake(1, kCachedVideoCompositionFPS);
 
   return videoComposition;
 }
@@ -163,6 +169,32 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
                                              selector:@selector(onDisplayLink:)];
   [_displayLink addToRunLoop:[NSRunLoop currentRunLoop] forMode:NSRunLoopCommonModes];
   _displayLink.paused = YES;
+  [self pinDisplayLinkToPlaybackRate];
+}
+
+// The display link drives textureFrameAvailable, which is what makes the engine recomposite the
+// whole scene. Left uncapped it fires at the display rate (60 or 120 Hz), so every video frame is
+// rasterized two or four times. Pin it to the rate at which new frames actually arrive.
+//
+// That rate is the composition's, not the source track's: getVideoCompositionWithTransform: sets
+// frameDuration to kCachedVideoCompositionFPS for every file-based asset, so the video output
+// emits at that rate whatever the source fps is. Pinning to videoTrack.nominalFrameRate instead
+// undersamples the composed stream (a 24 fps source pinned at 24 against a 30 Hz composition drops
+// frames). Keep this constant and frameDuration in sync.
+//
+// Do NOT instead gate textureFrameAvailable on hasNewPixelBufferForItemTime: copyPixelBuffer
+// consumes the buffer, so the check reports "nothing new" for a frame that was merely already
+// taken, and every second frame is dropped. Upstream removed exactly that gate in
+// flutter/packages#7466.
+- (void)pinDisplayLinkToPlaybackRate {
+  if (@available(iOS 15.0, *)) {
+    // rate is 0 while paused; the link is paused too, so pin for the next play at normal speed.
+    float rate = _player.rate > 0 ? _player.rate : 1.0f;
+    // At 2x the item timeline advances twice per wall second, so twice as many distinct frames
+    // stream past and the link has to sample twice as often.
+    float target = kCachedVideoCompositionFPS * rate;
+    _displayLink.preferredFrameRateRange = CAFrameRateRangeMake(target, target, target);
+  }
 }
 
 - (instancetype)initWithURL:(NSURL*)url
@@ -391,6 +423,8 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
   }
 
   _player.rate = speed;
+  // Only on the success path: the early returns above leave the rate unchanged.
+  [self pinDisplayLinkToPlaybackRate];
 }
 
 - (CVPixelBufferRef)copyPixelBuffer {
