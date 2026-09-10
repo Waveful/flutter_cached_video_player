@@ -139,16 +139,17 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
   instruction.layerInstructions = @[ layerInstruction ];
   videoComposition.instructions = @[ instruction ];
 
-  // If in portrait mode, switch the width and height of the video
-  CGFloat width = videoTrack.naturalSize.width;
-  CGFloat height = videoTrack.naturalSize.height;
-  NSInteger rotationDegrees =
-      (NSInteger)round(radiansToDegrees(atan2(_preferredTransform.b, _preferredTransform.a)));
-  if (rotationDegrees == 90 || rotationDegrees == 270) {
-    width = videoTrack.naturalSize.height;
-    height = videoTrack.naturalSize.width;
-  }
-  videoComposition.renderSize = CGSizeMake(width, height);
+  // The rectangle the rotated frame occupies, derived from the same corners
+  // fixTransform placed it by. For a plain 90/270 rotation this is the natural
+  // size with its sides swapped, as before; deriving it from the rotation angle
+  // instead misjudges a matrix that also mirrors.
+  CGAffineTransform linear = CGAffineTransformMake(
+      _preferredTransform.a, _preferredTransform.b, _preferredTransform.c,
+      _preferredTransform.d, 0, 0);
+  CGRect mapped = CGRectApplyAffineTransform(
+      CGRectMake(0, 0, videoTrack.naturalSize.width, videoTrack.naturalSize.height),
+      linear);
+  videoComposition.renderSize = CGSizeMake(CGRectGetWidth(mapped), CGRectGetHeight(mapped));
 
   // TODO(@recastrodiaz): should we use videoTrack.nominalFrameRate ?
   // Currently set at a constant 30 FPS. pinDisplayLinkToPlaybackRate reads the same constant, so
@@ -211,37 +212,33 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
 
 - (CGAffineTransform)fixTransform:(AVAssetTrack*)videoTrack {
   CGAffineTransform transform = videoTrack.preferredTransform;
-  NSInteger rotationDegrees = (NSInteger)round(radiansToDegrees(atan2(transform.b, transform.a)));
-  if (rotationDegrees == 0) {
-    // Nothing to place: the frame already sits on the composition's origin.
-    return transform;
-  }
+  CGSize naturalSize = videoTrack.naturalSize;
 
   // The rotation is played back through an AVMutableVideoComposition whose
   // renderSize is the *rotated* frame, so the transform has to carry the frame
-  // back onto that rectangle's origin. A file's own translation is authored
-  // against its container, not against this render rectangle, and a value that
+  // onto that rectangle's origin. A file's own translation is authored against
+  // its container, not against this render rectangle, and a value that
   // disagrees puts every pixel outside it: the composition then emits fully
   // black frames while the audio track keeps playing normally.
   //
-  // The rotation itself (and any mirroring, as on front-camera clips) is left
-  // exactly as the file authored it; only the translation is recomputed.
-  // Previously this ran only when both components were already zero, which left
-  // a wrongly-translated file broken.
+  // Place the frame by where its own corners land under the matrix's linear
+  // part. That covers rotation, mirroring (front-camera clips carry a flip)
+  // and any combination of the two. Deriving the translation from the rotation
+  // angle alone gets a mirrored matrix wrong, and the previous code recomputed
+  // it only when both components were already zero, which left a wrongly
+  // translated file broken.
   // See https://github.com/flutter/flutter/issues/17606#issuecomment-413473181
-  CGSize naturalSize = videoTrack.naturalSize;
-  NSLog(@"[cached_video_player] rotation=%ld natural=%.0fx%.0f authored tx,ty=%.0f,%.0f",
-        (long)rotationDegrees, naturalSize.width, naturalSize.height, transform.tx, transform.ty);
-  if (rotationDegrees == 90) {
-    transform.tx = naturalSize.height;
-    transform.ty = 0;
-  } else if (rotationDegrees == 180) {
-    transform.tx = naturalSize.width;
-    transform.ty = naturalSize.height;
-  } else if (rotationDegrees == 270) {
-    transform.tx = 0;
-    transform.ty = naturalSize.width;
-  }
+  CGAffineTransform linear =
+      CGAffineTransformMake(transform.a, transform.b, transform.c, transform.d, 0, 0);
+  CGRect mapped = CGRectApplyAffineTransform(
+      CGRectMake(0, 0, naturalSize.width, naturalSize.height), linear);
+  transform.tx = -CGRectGetMinX(mapped);
+  transform.ty = -CGRectGetMinY(mapped);
+
+  NSLog(@"[cached_video_player] natural=%.0fx%.0f authored tx,ty=%.0f,%.0f placed tx,ty=%.0f,%.0f",
+        naturalSize.width, naturalSize.height, videoTrack.preferredTransform.tx,
+        videoTrack.preferredTransform.ty, transform.tx, transform.ty);
+
   return transform;
 }
 

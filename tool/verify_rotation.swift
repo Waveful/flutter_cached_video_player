@@ -29,15 +29,15 @@ func fixTransformOld(_ track: AVAssetTrack) -> CGAffineTransform {
   return t
 }
 
-/// The implementation after the change.
+/// The implementation after the change: place the frame by its own corners.
 func fixTransformNew(_ track: AVAssetTrack) -> CGAffineTransform {
   var t = track.preferredTransform
-  let deg = degrees(t)
-  if deg == 0 { return t }
   let n = track.naturalSize
-  if deg == 90 { t.tx = n.height; t.ty = 0 }
-  else if deg == 180 { t.tx = n.width; t.ty = n.height }
-  else if deg == 270 { t.tx = 0; t.ty = n.width }
+  let linear = CGAffineTransform(a: t.a, b: t.b, c: t.c, d: t.d, tx: 0, ty: 0)
+  let mapped = CGRect(x: 0, y: 0, width: n.width, height: n.height)
+    .applying(linear)
+  t.tx = -mapped.minX
+  t.ty = -mapped.minY
   return t
 }
 
@@ -50,10 +50,11 @@ func composition(_ asset: AVAsset, _ track: AVAssetTrack,
   instruction.layerInstructions = [layer]
   let comp = AVMutableVideoComposition()
   comp.instructions = [instruction]
-  var w = track.naturalSize.width, h = track.naturalSize.height
-  let deg = degrees(transform)
-  if deg == 90 || deg == 270 { swap(&w, &h) }
-  comp.renderSize = CGSize(width: w, height: h)
+  let linear = CGAffineTransform(a: transform.a, b: transform.b,
+                                 c: transform.c, d: transform.d, tx: 0, ty: 0)
+  let mapped = CGRect(x: 0, y: 0, width: track.naturalSize.width,
+                      height: track.naturalSize.height).applying(linear)
+  comp.renderSize = CGSize(width: mapped.width, height: mapped.height)
   comp.frameDuration = CMTime(value: 1, timescale: 30)
   return comp
 }
