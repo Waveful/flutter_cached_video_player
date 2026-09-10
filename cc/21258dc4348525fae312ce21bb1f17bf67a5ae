@@ -1,0 +1,19 @@
+ios/Classes/CachedVideoPlayerPlugin.m
+  s_09d0ea2de397d9::t_5d1572616d6d00 214-243
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cc21258dc4348525fae312ce21bb1f17bf67a5ae",
+  "prompts": {},
+  "sessions": {
+    "s_09d0ea2de397d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dc23bad2-f12b-4120-9f08-5af21148d5ce",
+        "model": "claude-opus-5"
+      },
+      "human_author": "xFlaviews <flaviusmironcatalin@gmail.com>"
+    }
+  }
+}
