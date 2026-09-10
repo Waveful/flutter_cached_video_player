@@ -1,0 +1,21 @@
+ios/Classes/CachedVideoPlayerPlugin.m
+  s_09d0ea2de397d9::t_3825ff9c0f8ccc 142-152,215,219-220,224-229,231-241
+tool/verify_rotation.swift
+  s_09d0ea2de397d9::t_b3c6093315f8e7 32,36-40,53-57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fc5827c5c9ba5a3262a9a6cb176ddbbf2016cb36",
+  "prompts": {},
+  "sessions": {
+    "s_09d0ea2de397d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dc23bad2-f12b-4120-9f08-5af21148d5ce",
+        "model": "claude-opus-5"
+      },
+      "human_author": "xFlaviews <flaviusmironcatalin@gmail.com>"
+    }
+  }
+}
