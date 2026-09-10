@@ -211,23 +211,36 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
 
 - (CGAffineTransform)fixTransform:(AVAssetTrack*)videoTrack {
   CGAffineTransform transform = videoTrack.preferredTransform;
-  // TODO(@recastrodiaz): why do we need to do this? Why is the preferredTransform incorrect?
-  // At least 2 user videos show a black screen when in portrait mode if we directly use the
-  // videoTrack.preferredTransform Setting tx to the height of the video instead of 0, properly
-  // displays the video https://github.com/flutter/flutter/issues/17606#issuecomment-413473181
-  if (transform.tx == 0 && transform.ty == 0) {
-    NSInteger rotationDegrees = (NSInteger)round(radiansToDegrees(atan2(transform.b, transform.a)));
-    NSLog(@"TX and TY are 0. Rotation: %ld. Natural width,height: %f, %f", (long)rotationDegrees,
-          videoTrack.naturalSize.width, videoTrack.naturalSize.height);
-    if (rotationDegrees == 90) {
-      NSLog(@"Setting transform tx");
-      transform.tx = videoTrack.naturalSize.height;
-      transform.ty = 0;
-    } else if (rotationDegrees == 270) {
-      NSLog(@"Setting transform ty");
-      transform.tx = 0;
-      transform.ty = videoTrack.naturalSize.width;
-    }
+  NSInteger rotationDegrees = (NSInteger)round(radiansToDegrees(atan2(transform.b, transform.a)));
+  if (rotationDegrees == 0) {
+    // Nothing to place: the frame already sits on the composition's origin.
+    return transform;
+  }
+
+  // The rotation is played back through an AVMutableVideoComposition whose
+  // renderSize is the *rotated* frame, so the transform has to carry the frame
+  // back onto that rectangle's origin. A file's own translation is authored
+  // against its container, not against this render rectangle, and a value that
+  // disagrees puts every pixel outside it: the composition then emits fully
+  // black frames while the audio track keeps playing normally.
+  //
+  // The rotation itself (and any mirroring, as on front-camera clips) is left
+  // exactly as the file authored it; only the translation is recomputed.
+  // Previously this ran only when both components were already zero, which left
+  // a wrongly-translated file broken.
+  // See https://github.com/flutter/flutter/issues/17606#issuecomment-413473181
+  CGSize naturalSize = videoTrack.naturalSize;
+  NSLog(@"[cached_video_player] rotation=%ld natural=%.0fx%.0f authored tx,ty=%.0f,%.0f",
+        (long)rotationDegrees, naturalSize.width, naturalSize.height, transform.tx, transform.ty);
+  if (rotationDegrees == 90) {
+    transform.tx = naturalSize.height;
+    transform.ty = 0;
+  } else if (rotationDegrees == 180) {
+    transform.tx = naturalSize.width;
+    transform.ty = naturalSize.height;
+  } else if (rotationDegrees == 270) {
+    transform.tx = 0;
+    transform.ty = naturalSize.width;
   }
   return transform;
 }
